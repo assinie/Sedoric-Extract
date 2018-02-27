@@ -966,7 +966,7 @@ class sedoric():
 		cat = track['raw'][offset:offset+256]
 
 		self.diskname = cat[9:30]
-		print dump(cat)
+		# print dump(cat)
 
 		P = 0
 		S = 2
@@ -1129,7 +1129,7 @@ class sedoric():
 		else:
 			disktype = chr(disktype)
 
-		print '***%d sectors free (%c/%d/%d) %d files (%s)' % (free_sectors, sides_txt, tracks, sectors, files, disktype)
+		# print '***%d sectors free (%c/%d/%d) %d files (%s)' % (free_sectors, sides_txt, tracks, sectors, files, disktype)
 
 		# Lecture premier secteur du catalogue S:0 P:20 S:4
 
@@ -1141,6 +1141,7 @@ class sedoric():
 
 			offset = track['sectors'][S]['data_ptr'] +1
 			cat = track['raw'][offset:offset+256]
+			# print dump(cat)
 
 			# Chainage vers le catalogue suivant
 			P = ord(cat[0])
@@ -1180,6 +1181,7 @@ class sedoric():
 				offset = track['sectors'][S_FCB]['data_ptr'] +1
 				cat = track['raw'][offset:offset+256]
 				# print  map (lambda s: hex(s), struct.unpack('256B',cat))
+				# print dump(cat)
 
 				# Chainage vers le FCB suivant
 				P_FCB = ord(cat[0])
@@ -1190,7 +1192,8 @@ class sedoric():
 				# (structure simplifiee)
 				# print 'P:%d S:%d' %(P_FCB, S_FCB)
 
-				print 'FCB01: %02X' % FCB01
+				print 'Fichier              : ', filename
+				print 'FCB01                : %02X' % FCB01
 
 				if (FCB01 == 0xff):
 					# Uniquement pour le premier FCB
@@ -1221,7 +1224,7 @@ class sedoric():
 						record_size = end
 						start = record_size
 						size = record_number * record_size
-						print 'Nombre de fiches:    : ', record_number
+						print 'Nombre de fiches     : ', record_number
 						print 'Longueur d une fiche : ', record_size
 
 					else:
@@ -1250,13 +1253,13 @@ class sedoric():
 						nb_sector += 1
 						if P != last_track_read:
 							# print 'Lecture P:%d S:%d' % (P,S)
-							#track = self.read_track(P,0)
 							track = self.read_track(P & 0x7f, (P & 0x80) >> 7)
 							last_track_read = P
 						#else:
 						#	print '***read_file: track already read (H: %d, T: %d, S:%d)' % ((P & 0x80) >> 7, P & 0x7f, S)
 
 						offset = track['sectors'][S]['data_ptr'] +1
+						# print dump(track['raw'][offset:offset+256])
 						file += track['raw'][offset:offset+256]
 
 		return {'file': file[0:size], 'start': start, 'size': size}
@@ -1281,7 +1284,6 @@ def CreateDisk():
 def main():
 	print sys.argv[1]
 
-	# fs = oricdsk()
 	fs = sedoric()
 	fs.source = sys.argv[1]
 	test = 0
@@ -1330,9 +1332,9 @@ def main():
 
 			print 'DOS      : %s' % (dos)
 
-			fs.display_bitmap()
+			# fs.display_bitmap()
 
-			fs._cat()
+			cat = fs.read_dir()
 
 			#cat = fs.read_file('COPY    .CMD')['file']
 			#print dump(cat)
@@ -1347,11 +1349,10 @@ def main():
 			#	print 'P:%d S:%d' % (P, S)
 			#	print dump(cat)
                 
-			fs._cat()
-			cat = fs.SEDORIC_cat()
 			pprint(cat)
 
 			for fn in cat.keys():
+				print
 				raw = fs.read_file(fn)
 				pprint(raw)
 
