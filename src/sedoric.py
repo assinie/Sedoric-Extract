@@ -3,10 +3,10 @@
 #------------------------------------------------------------------------------
 # vim: set ts=4 ai :
 #
-# $Id$
-# $Author$
-# $Date$
-# $Revision$
+# $Id: sedoric.py $
+# $Author: assinie <github@assinie.info> $
+# $Date: 2018-02-27 $
+# $Revision: 0.1 $
 #
 #------------------------------------------------------------------------------
 
@@ -1349,7 +1349,8 @@ def main():
 			#	print 'P:%d S:%d' % (P, S)
 			#	print dump(cat)
                 
-			pprint(cat)
+			# pprint(cat)
+			fs._cat()
 
 			for fn in cat.keys():
 				print
