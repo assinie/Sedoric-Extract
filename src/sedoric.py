@@ -15,7 +15,7 @@
 #	Ok pour SEDORIC2, Pb avec SEDORIC3, a voir...
 #
 
-__plugin_name__ = 'sedoric'
+__program_name__ = 'sedoric'
 __description__ = "Extract files from Sedoric disk image"
 __plugin_type__ = 'OS'
 __version__ = '0.4'
@@ -579,6 +579,10 @@ class sedoric():
 						print 'Nombre de fiches     : ', record_number
 						print 'Longueur d une fiche : ', record_size
 
+					elif type & 0x10 == 0x10:
+						# Note: La fin réelle du fichier est au 1er 0x00 rencontré
+						size  = sector_count * self.sectorsize
+
 					else:
 						size = end - start +1
 						print 'Adresse de chargement: ', hex(start)
@@ -614,13 +618,14 @@ class sedoric():
 						# print dump(track['raw'][offset:offset+256])
 						file += track['raw'][offset:offset+256]
 
-		return {'file': file[0:size], 'start': start, 'size': size}
+		# /!\ 'end' et 'exec_addr' non valables si type = direct
+		# /!\ 'start', 'end', 'exec_addr' non valables si type = sequentiel
+		return {'file': file[0:size], 'start': start, 'size': size, 'end': end, 'exec': exec_addr, 'type': type}
 
 
-def main(diskname, pattern):
+def main(diskname, pattern, fHeader):
 	fs = sedoric()
 	fs.source = diskname
-	pattern = pattern.upper()
 
 	try:
 		fs.source = os.path.abspath(fs.source)
@@ -668,13 +673,48 @@ def main(diskname, pattern):
 			cat = fs.read_dir()
 			# pprint(cat)
 
-			fs._cat()
+			if pattern is None:
+				fs._cat()
 
-			for fn in cat.keys():
-				if fnmatch.fnmatch(cat[fn]['stripped_name'],pattern):
-					print
-					raw = fs.read_file(fn)
-					pprint(raw)
+			else:
+				pattern = pattern.upper()
+
+				for fn in cat.keys():
+					if fnmatch.fnmatch(cat[fn]['stripped_name'],pattern):
+						raw = fs.read_file(fn)
+						# pprint(raw)
+
+						with open(cat[fn]['stripped_name'],'wb') as output:
+
+							if fHeader == 'orix':
+								output.write(b'\x01\x00ori\x01\x00')
+								output.write(b'\x00' * 6)
+								output.write(chr(0b01001001))
+								output.write(struct.pack('<H',raw['start']))
+								output.write(struct.pack('<H',raw['start']+raw['size']))
+								output.write(struct.pack('<H',0))
+
+							elif fHeader == 'tape':
+								output.write('\x16\x16\x16\x16\x24')
+								output.write('\xff\xff')
+
+								if raw['type'] & 0x80 == 0x80:
+									output.write('\x00')
+								else:
+									output.write('\x80')
+
+								# output.write( chr(raw['type'] & 0x01) )
+								output.write( chr(0x00) )
+
+								output.write(struct.pack('>H',raw['start']+raw['size']))
+								output.write(struct.pack('>H',raw['start']))
+
+								output.write(chr(len(fn)))
+								output.write(fn)
+								output.write('\x00')
+
+
+							output.write(raw['file'])
 
 	except IOError, e:
 		print "Erreur", e
@@ -684,17 +724,14 @@ def main(diskname, pattern):
 
 
 if __name__ == '__main__':
-	# parser = argparse.ArgumentParser(prog='sedoric', description='Extract files from sedoric image disk', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-	parser = argparse.ArgumentParser(description = __description__ , formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+	parser = argparse.ArgumentParser(prog=__program_name__, description=__description__ , formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-	# parser.add_argument('diskname', type=argparse.FileType('rb'), help='Disk image file')
 	parser.add_argument('diskname', type=str, help='Disk image file')
-	parser.add_argument('file', type=str, nargs='*', metavar='file', default=['*.*'], help='file(s) to extract')
-	# parser.add_argument('--output', '-o', type=argparse.FileType('wb'), default=sys.stdout, help='MAP filename')
-	parser.add_argument('--output', '-o', type=argparse.FileType('wb'), default=None, help='MAP filename')
+	parser.add_argument('file', type=str, nargs='?', default=None, help='file(s) to extract')
+	parser.add_argument('--header', type=str, default=None, choices=['orix','tape'], help='prepend with specific header')
 	parser.add_argument('--version', '-v', action='version', version= '%%(prog)s v%s' % __version__)
 
 	args = parser.parse_args()
 
-	main(args.diskname, args.file[0])
+	main(args.diskname, args.file, args.header)
 
