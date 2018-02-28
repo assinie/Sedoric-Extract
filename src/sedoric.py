@@ -16,151 +16,40 @@
 #
 
 __plugin_name__ = 'sedoric'
-__description__ = "Gestion des images Sedoric"
+__description__ = "Extract files from Sedoric disk image"
 __plugin_type__ = 'OS'
 __version__ = '0.4'
 
 ORIC_SEDORIC_VERSION = '0.4'
 
-#from oricdsk import oricdsk
 from utils import dump
 from transform import transform
 
 from pprint import pprint
 
-import time
+#import time
 
-import stat    # for file properties
+#import stat    # for file properties
 import os      # for filesystem modes (O_RDONLY, etc)
-import errno   # for error number codes (ENOENT, etc)
+#import errno   # for error number codes (ENOENT, etc)
                # - note: these must be returned as negatives
 
-from math import ceil
-import getpass
+#from math import ceil
+#import getpass
 import sys
 import struct
 
-version = '\x01\x00\x00\x00\x00\x00\x00\x00        ' \
-+ '\x00\x00\x03\x00\x00\x00\x01\x00' \
-+ 'SEDORIC                                 ' \
-+ 'SEDORIC V3.006 01/01/96\x0d\x0a' \
-+ 'Upgraded by Ray McLaughlin         \x0d\x0a' \
-+ 'and Andr{ Ch{ramy             \x0d\x0a\x0d\x0a' \
-+ 'See SEDORIC3.FIX file for information \x0d\x0a' \
-+ '                                                        '
-
-# Octet #$16 = 0x01 pour une slave (0x00 pour une maitre)
-copyright = '\x00\x00\xFF\x00\xD0\x9F\xD0\x9F\x02\xB9\x01\x00\xFF\x00\x00\xB9' \
-+ '\xE4\xB9\x00\x00\xE6\x12\x01\x78\xA9\x7F\x8D\x0E\x03\xA9\x10\xA0' \
-+ '\x07\x8D\x6B\x02\x8C\x6C\x02\xA9\x86\x8D\x14\x03\xA9\xBA\xA0\xB9' \
-+ '\x20\x1A\x00\xA9\x84\x8D\x14\x03\xA2\x02\xBD\xFD\xCC\x9D\xF7\xCC' \
-+ '\xCA\x10\xF7\xA2\x37\xA0\x80\xA9\x00\x18\x79\x00\xC9\xC8\xD0\xF9' \
-+ '\xEE\x37\xB9\xCA\xD0\xF3\xA2\x04\xA8\xF0\x08\xAD\x01\xB9\xA8\xD0' \
-+ '\x02\xA2\x3C\x84\x00\xA9\x7B\xA0\xB9\x8D\xFE\xFF\x8C\xFF\xFF\xA9' \
-+ '\x05\x8D\x12\x03\xA9\x85\x8D\x14\x03\xA9\x88\x8D\x10\x03\xA0\x00' \
-+ '\x58\xAD\x18\x03\x30\xFB\xAD\x13\x03\x99\x00\xC4\xC8\x4C\x6C\xB9' \
-+ '\xA9\x84\x8D\x14\x03\x68\x68\x68\xAD\x10\x03\x29\x1C\xD0\xD5\xEE' \
-+ '\x76\xB9\xEE\x12\x03\xCA\xF0\x1F\xAD\x12\x03\xCD\x00\xB9\xD0\xC1' \
-+ '\xA9\x58\x8D\x10\x03\xA0\x03\x88\xD0\xFD\xAD\x10\x03\x4A\xB0\xFA' \
-+ '\xA9\x01\x8D\x12\x03\xD0\xAA\xA9\xC0\x8D\x0E\x03\x4C\x00\xC4\x0C' \
-+ '\x11' \
-+ 'SEDORIC V3.0\x0a\x0d' \
-+ '` 1985 ORIC INTERNATIONAL\x0d\x0a' + chr(0)*6
-
-boot3 = '\x00\x00\x02' + 'SYSTEMDOS' + '\x01\x00\x02\x00\x02\x00\x00' + 'BOOTUPCOM' + '\x00\x00\x00\x00' \
-				+ chr(0)*16*14
-
-boot4 = '\x00\x00\xFF\x40\x00\x14\xFF\x4F\x00\x00\x3C\x00\x00\x05\x00\x06' \
-+ '\x00\x07\x00\x08\x00\x09\x00\x0A\x00\x0B\x00\x0C\x00\x0D\x00\x0E' \
-+ '\x00\x0F\x00\x10\x00\x11\x01\x01\x01\x02\x01\x03\x01\x04\x01\x05' \
-+ '\x01\x06\x01\x07\x01\x08\x01\x09\x01\x0A\x01\x0B\x01\x0C\x01\x0D' \
-+ '\x01\x0E\x01\x0F\x01\x10\x01\x11\x02\x01\x02\x02\x02\x03\x02\x04' \
-+ '\x02\x05\x02\x06\x02\x07\x02\x08\x02\x09\x02\x0A\x02\x0B\x02\x0C' \
-+ '\x02\x0D\x02\x0E\x02\x0F\x02\x10\x02\x11\x03\x01\x03\x02\x03\x03' \
-+ '\x03\x04\x03\x05\x03\x06\x03\x07\x03\x08\x03\x09\x03\x0A\x03\x0B' \
-+ '\x03\x0C\x03\x0D\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' \
-+ chr(0)*16*7
-
-boot5 = '\xAD\x07\xC0\x4A\xA9\x00\x6A\x8D\x24\xC0\x10\x0F\xA9\x50\x8D\x56' \
-+ '\x02\x4A\x85\x31\x85\x32\x8D\x57\x02\xD0\x06\xA9\x5D\x85\x31\x85' \
-+ '\x32\xEE\xC1\x02\xEE\xC2\x02\xA2\x00\xBD\x00\xC6\x2C\x24\xC0\x10' \
-+ '\x03\xBD\x00\xC7\x9D\x00\x04\xE8\xD0\xEF\xA9\x4C\xA0\x00\xA2\x04' \
-+ '\x85\xEF\x84\xF0\x86\xF1\xA9\x88\xA0\xC4\x2C\x24\xC0\x10\x26\x8D' \
-+ '\x45\x02\x8E\x46\x02\x8C\x48\x02\x8E\x49\x02\xA9\x5B\x8D\x3C\x02' \
-+ '\x8E\x3D\x02\xA9\x09\xA0\x01\x8D\x4E\x02\x8C\x4F\x02\xA9\x0F\xA2' \
-+ '\x70\xA0\xD0\xD0\x12\x8D\x29\x02\x8E\x2A\x02\x8C\x2C\x02\x8E\x2D' \
-+ '\x02\xA9\x07\xA2\xE4\xA0\xCF\x8D\x6A\x02\x8E\xF9\x02\x8C\xFA\x02' \
-+ '\xA2\x04\xA9\xA5\xA0\xD0\x8D\xFE\xFF\x8C\xFF\xFF\xA9\x67\xA0\x61' \
-+ '\x8D\xF5\x02\x8E\xF6\x02\x8C\xFC\x02\x8E\xFD\x02\xA9\x00\x8D\x09' \
-+ '\xC0\x8D\x0A\xC0\x8D\x0B\xC0\x8D\x0C\xC0\x8D\x15\xC0\x8D\x18\xC0' \
-+ '\x8D\xDF\x02\x8D\x48\xC0\x85\x87\xA9\x85\xA0\xD6\x8D\x1D\xC0\x8C' \
-+ '\x1E\xC0\xAD\x11\x03\x8D\x0C\xC0\xA9\x23\xA0\xDE\xA2\x80\x8D\x66' \
-+ '\xC0\x8C\x67\xC0\x8E\x68\xC0\x8D\x69\xC0\x8C\x6A\xC0\x8E\x6B\xC0' \
-+ '\x8D\x6C\xC0\x8C\x6D\xC0\x8E\x6E\xC0\x8D\x6F\xC0\x8C\x70\xC0\x8E'
-
-boot6 = '\x71\xC0\xA9\x2E\x8D\x75\xC0\xA9\x1A\xA0\x00\x8D\xF0\x04\x8C\xF1' \
-+ '\x04\xA5\x00\xF0\x12\xA2\xFF\xE8\xBD\x74\xC5\x9D\x00\xB9\xD0\xF7' \
-+ '\xA9\x00\xA0\xB9\x20\xEC\x04\xA9\x14\xA0\x01\x20\x5D\xDA\xA2\x08' \
-+ '\xBD\x00\xC1\x9D\x39\xC0\xE0\x05\x90\x03\x9D\x3D\xC0\xCA\x10\xF0' \
-+ '\x20\xA3\xEB\x20\xD8\xD5\xE0\xF7\x16\xF8\xA2\x41\xBD\x1E\xC1\x95' \
-+ '\x36\xCA\x10\xF8\xA9\x3A\x85\x35\x20\x06\xD2\xA9\xBD\xA0\xC4\x2C' \
-+ '\x24\xC0\x30\x02\xA9\xCD\x8D\xF0\x04\x8C\xF1\x04\xA2\x34\xA0\x00' \
-+ '\x58\x4C\x71\x04\x0A\x8C\x81** WARNIN' \
-+ 'G **\x88\x87DOS is alt' \
-+ 'ered !\x0D\x0A\x00\x4C\x64\xD3\x60\xAD\xAE\xC5' \
-+ '\xAE\xAF\xC5\x8D\x01\xC0\x8E\x02\xC0\xAD\xB0\xC5\xD0\xDB\x27\x09' \
-+ '\x1AIN DRIVE\xA0LOAD D' \
-+ 'ISCS FOR BACKUP ' \
-+ 'FROM\xA0 TO\xA0\x0D\x0ALOAD ' \
-+ 'SOURCE DISC\xA0\x0D\x0ALO' \
-+ 'AD TARGET DISA-+'
-
-boot7 = '\xC9\x30\x90\x04\xC9\x3A\x90\x35\x86\x0F\xAA\x30\x2E\x85\xC1\x68' \
-+ '\xAA\x68\x48\xE0\xF7\xD0\x04\xC9\xC8\xF0\x09\xE0\x58\xD0\x18\xC9' \
-+ '\xCA\xD0\x14\x24\x18\x6E\xFC\x04\xA0\xFF\xC8\xB1\xE9\xF0\x11\xC9' \
-+ '\x3A\xF0\x0D\xC9\xD4\xD0\xF3\x8A\x48\xA5\xC1\xA6\x0F\x4C\x41\xEA' \
-+ '\x68\x20\xE9\x04\x20\x67\x04\x0E\xFC\x04\xB0\x03\x4C\xAD\xC8\xEA' \
-+ '\xEA\xEA\x60\x20\x77\x04\xB1\x16\x4C\x77\x04\xEA\xEA\xEA\xEA\xEA' \
-+ '\xEA\xA9\x8E\xA0\xF8\xD0\x04\xA9\xAE\xA0\xD3\x8D\xF0\x04\x8C\xF1' \
-+ '\x04\x20\x77\x04\x20\xEF\x04\x08\x48\x78\xAD\xFB\x04\x49\x02\x8D' \
-+ '\xFB\x04\x8D\x14\x03\x68\x28\x60\x2C\x0D\x03\x50\x0F\x48\xA9\x04' \
-+ '\x2D\x6A\x02\xF0\x03\xEE\x74\x02\x68\x4C\x03\xEC\x68\x68\x85\xF2' \
-+ '\x68\xAA\xA9\x36\xA0\xD1\xD0\xC3\x20\xF2\x04\x68\x40\x8D\x14\x03' \
-+ '\x6C\xFC\xFF\x18\x20\x77\x04\x48\xA9\x04\x48\xA9\xA8\x48\x08\xB0' \
-+ '\x03\x4C\x28\x02\x20\x88\xF8\xA9\x17\xA0\xEC\x20\x6B\x04\x4C\x75' \
-+ '\xC4\xA9\x04\x48\xA9\xF1\x48\x8A\x48\x98\x48\x20\xF2\x04\x4C\x70' \
-+ '\xD2\xEA\xEA\xEA\xEA\xEA\xEA\xEA\xEA\x4C\x87\x04\x4C\x71\x04\x4C' \
-+ '\x00\x00\x4C\x77\x04\x4C\xB3\x04\x4C\xB4\x04\x84\x00\x00\x00\x00'
-
-boot8 = '\xC9\x30\x90\x04\xC9\x3A\x90\x35\x86\x0F\xAA\x30\x2E\x85\xC1\x68' \
-+ '\xAA\x68\x48\xE0\x0E\xD0\x04\xC9\xC9\xF0\x09\xE0\x8A\xD0\x18\xC9' \
-+ '\xCA\xD0\x14\x24\x18\x6E\xFC\x04\xA0\xFF\xC8\xB1\xE9\xF0\x11\xC9' \
-+ '\x3A\xF0\x0D\xC9\xD4\xD0\xF3\x8A\x48\xA5\xC1\xA6\x0F\x4C\xB9\xEC' \
-+ '\x68\x20\xE9\x04\x20\x67\x04\x0E\xFC\x04\xB0\x03\x4C\xC1\xC8\x6E' \
-+ '\x52\x02\x60\x20\x77\x04\xB1\x16\x4C\x77\x04\xA9\x45\xA0\xD8\xD0' \
-+ '\x0A\xA9\x8E\xA0\xF8\xD0\x04\xA9\xAE\xA0\xD3\x8D\xF0\x04\x8C\xF1' \
-+ '\x04\x20\x77\x04\x20\xEF\x04\x08\x48\x78\xAD\xFB\x04\x49\x02\x8D' \
-+ '\xFB\x04\x8D\x14\x03\x68\x28\x60\x2C\x0D\x03\x50\x0F\x48\xA9\x04' \
-+ '\x2D\x6A\x02\xF0\x03\xEE\x74\x02\x68\x4C\x22\xEE\x68\x68\x85\xF2' \
-+ '\x68\xAA\xA9\x36\xA0\xD1\xD0\xC3\x20\xF2\x04\x68\x40\x8D\x14\x03' \
-+ '\x6C\xFC\xFF\x18\x20\x77\x04\x48\xA9\x04\x48\xA9\xA8\x48\x08\xB0' \
-+ '\x03\x4C\x44\x02\x20\xB8\xF8\xA9\x17\xA0\xEC\x20\x6B\x04\x4C\x71' \
-+ '\xC4\xA9\x04\x48\xA9\xF1\x48\x8A\x48\x98\x48\x20\xF2\x04\x4C\x06' \
-+ '\xD3\xEA\xEA\xEA\xEA\xEA\xEA\xEA\xEA\x4C\x87\x04\x4C\x71\x04\x4C' \
-+ '\x00\x00\x4C\x77\x04\x4C\xB3\x04\x4C\xB4\x04\x84\x00\x00\x00\x00'
-
-bootsectors = [version, copyright, boot3, boot4, boot5, boot6, boot7, boot8]
-
-def __init_plugin__():
-		print "%s.__init_plugin__()" % __name__
-
-def __setup__():
-		return sedoric()
-
+import argparse
+import fnmatch
 
 def SEDORIC_DirEntry(self, entry):
 	# name = entry[0:12]
 	name = entry[0:9] + '.' + entry[9:12]
+	stripped_name = entry[0:9].rstrip()
+	stripped_ext = entry[9:12].rstrip()
+	if stripped_ext > '':
+		stripped_name = stripped_name + '.' + stripped_ext
+
 	P_FCB = ord(entry[12])
 	S_FCB = ord(entry[13])
 
@@ -223,7 +112,7 @@ def SEDORIC_DirEntry(self, entry):
 		elif type & 0x80 == 0x80:
 				content_type = 'basic'
 
-		return {name: {'side': side, 'track': P_FCB, 'sector': S_FCB, 'lock': lock, 'type': type, 'size': size, 'content_type': content_type}}
+		return {name: {'stripped_name': stripped_name, 'side': side, 'track': P_FCB, 'sector': S_FCB, 'lock': lock, 'type': type, 'size': size, 'content_type': content_type}}
 
 	return {}
 
@@ -354,354 +243,6 @@ class sedoric():
 
 		return read_track
 
-	def find_free_sector(self, bitmap):
-		#
-		# bitmap: table avec les 2 bitmaps
-		#
-		print '*** find_free_sector'
-
-		# P = 20
-		# S = 2
-		# track = self.read_track(P,0)
-		# offset = track['sectors'][S]['data_ptr'] +1
-		# raw = track['raw'][offset:offset+256]
-
-		# S = 3
-		# offset = track['sectors'][S]['data_ptr'] +1
-		# raw2 = track['raw'][offset:offset+256]
-
-		raw = bitmap[0]
-		raw2 = bitmap[1]
-
-		Smax = struct.unpack('<H', raw2[0x02:0x04])[0]
-		ST =  ord(raw[0x07:0x08])
-
-		ok = False
-		offset = 0x10 -1
-		track = -1
-		sector = 0
-
-		S = 0
-		while not ok and S < Smax:
-			offset += 1
-
-			if offset > 0xff:
-				# On passe à la seconde bitmap
-				print 'Utilisation de la BitMap2'
-				raw = raw2
-				offset = 0x10
-
-			if S < Smax:
-				for i in range(0,8):
-
-					if S < Smax and not ok:
-						P = S / ST
-
-						print 'Test T:%d, S:%d' % (P, (S % ST)+1)
-
-						if ord(raw[offset:offset+1]) & 2**i == 2**i:
-							print '\tbit: %d' % i
-							ok = True
-							track = P
-							sector = (S % ST) +1
-
-						S = S + 1
-
-		return [track,sector]
-
-
-	def set_bitmap_sector_used(self, bitmap, track, sector):
-		raw = bitmap[0]
-		raw2 = bitmap[1]
-
-		Smax = struct.unpack('<H', raw2[0x02:0x04])[0]
-		ST =  ord(raw[0x07:0x08])
-
-		S = track * ST + sector -1 # Verifier que S < Smax?
-		offset = 0x10 + (S / 8)
-		bit = S % 8
-
-		print "(T=%d, S=%d) => offset=%X, bit=%d" % (track, sector, offset, bit)
-
-		if offset < 0x100:
-			print '\tAvant: %X' % ord(raw[offset:offset+1])
-			x = ord(raw[offset:offset+1]) & (0xff - 2**bit)
-			print '\tAprès: %X' % x
-			raw =  raw[:offset] + chr(x) + raw[offset+1:]
-		else:
-			x = ord(raw2[offset:offset+1]) & (0xff - 2**bit)
-			raw2 =  raw2[:offset] + chr(x) + raw2[offset+1:]
-
-		return [raw, raw2]
-
-	def set_bitmap_sector_free(self, bitmap, track, sector):
-		raw = bitmap[0]
-		raw2 = bitmap[1]
-
-		Smax = struct.unpack('<H', raw2[0x02:0x04])[0]
-		ST =  ord(raw[0x07:0x08])
-
-		S = track * ST + sector -1 # Verifier que S < Smax?
-		offset = 0x10 + (S / 8)
-		bit = S % 8
-
-		print "(T=%d, S=%d) => offset=%d, bit=%d" % (track, sector, offset, bit)
-
-		if offset < 0x100:
-			print '\tAvant: %X' % ord(raw[offset:offset+1])
-			x = ord(raw[offset:offset+1]) | (2**bit)
-			print '\tAprès: %X' % x
-			raw =  raw[:offset] + chr(x) + raw[offset+1:]
-		else:
-			x = ord(raw2[offset:offset+1]) | (2**bit)
-			raw =  raw2[:offset] + chr(x) + raw2[offset+1:]
-
-		return [raw, raw2]
-
-
-	def initdisk(self, params):
-		self.diskname = params['volume']
-		self.tracks = params['tracks']
-		self.sectors = params['sectors']
-		self.sides = params['sides']
-
-		print '*** initdisk T=%d, S=%d, H=%d' % (self.tracks, self.sectors, self.sides)
-
-		# Disquette Slave:
-		#	Piste 00/1 à 8           : Boot
-		#	Piste 20/1               : Secteur Système
-		#	Piste 20/2 et 3          : BitMap
-		#	Piste 20/4, 7, 10, 13, 16: Catalogues
-		#	-------------------------: 16 Secteurs occupés
-		#
-
-		# self.tracks = 82
-
-		system = chr(self.tracks + 128*(self.sides-1)) * 4 \
-			+ chr(0x40) \
-			+ struct.pack('<H',100) + struct.pack('<H',10) \
-			+ ('%- 21s' % self.diskname) \
-			+ chr(0x20) * 60 \
-			+ chr(0x00) * 166 \
-
-		Smax = self.tracks*self.sectors*self.sides
-
-		bitmap1 = chr(0xff) + chr(0x00) + struct.pack('<H',Smax-16) + struct.pack('<H',0) \
-			+ chr(self.tracks) + chr(self.sectors) + chr(0x01) + chr(self.tracks + 128*(self.sides-1)) \
-			+ chr(0x01) + chr(0)*5 + chr(0xff) * 240
-
-		bitmap2 = chr(0xff) + chr(0x00) + struct.pack('<H',Smax) + struct.pack('<H',0) \
-			+ chr(self.tracks) + chr(self.sectors) + chr(0x01) + chr(self.tracks + 128*(self.sides-1)) \
-			+ chr(0x01) + chr(0)*5 + chr(0xff) * 240
-
-
-		# Offset
-		#	00-01: Piste/Secteur du catalogue suivant
-		#	02   : Offset vers la première entrée libre (0x00 si plein)
-		#	03-0F: $00... Inutilisé
-		#	10-FF: Entrées du catalogue
-
-		directory = chr(0x00) + chr(0x00) + chr(0x10) + chr(0x00) * 253
-
-		bitmap = [bitmap1, bitmap2]
-		for i in range(1,9):
-			bitmap = self.set_bitmap_sector_used(bitmap, 0, i)     # Boot
-
-		bitmap = self.set_bitmap_sector_used(bitmap, 20, 1)     # secteur système
-		bitmap = self.set_bitmap_sector_used(bitmap, 20, 2)     # bitmap sector
-		bitmap = self.set_bitmap_sector_used(bitmap, 20, 3)     # bitmap sector
-		bitmap = self.set_bitmap_sector_used(bitmap, 20, 4)     # catalogue
-		bitmap = self.set_bitmap_sector_used(bitmap, 20, 7)     # catalogue
-		bitmap = self.set_bitmap_sector_used(bitmap, 20, 10)     # catalogue
-		bitmap = self.set_bitmap_sector_used(bitmap, 20, 13)     # catalogue
-		bitmap = self.set_bitmap_sector_used(bitmap, 20, 16)     # catalogue
-
-		diskimg = []
-		for i in range(0,self.tracks * self.sides):
-			print '\tAjoute piste: %d' % i
-			diskimg.append([chr(0x00) * self.sectorsize] *(self.sectors+1))
-
-		for i in range(0, 8):
-			diskimg[0][i] = bootsectors[i]
-
-		diskimg[20][1-1] = system
-		diskimg[20][2-1] = bitmap[0]
-		diskimg[20][3-1] = bitmap[1]
-		diskimg[20][4-1] = directory
-
-		self.diskimg = {'diskimg': diskimg, 'bitmap': bitmap, 'directory': directory}
-		return self.diskimg
-
-
-	def add_directory_entry(self, diskimg, file):
-		print '*** add_directory_entry'
-		nbsector = int(ceil(float(file['size'])/float(self.sectorsize)))
-
-		bitmap = diskimg['bitmap']
-
-		# -nbsector libres
-		# +1 pour le nombre de fichiers sur la disquette
-		bitmap[0] = bitmap[0][:0x02] + struct.pack('<H', struct.unpack('<H',bitmap[0][0x02:0x04])[0]-nbsector) + struct.pack('<H',struct.unpack('<H', bitmap[0][0x04:0x06])[0] +1) + bitmap[0][0x06:]
-
-		if file['content_type'] == 'basic':
-			ext = 'BAS'
-		elif file['content_type'] == 'Windows':
-			ext = 'WIN'
-		else:
-			ext = 'BIN'
-
-		# filename = file['filename'].replace(' ','-')
-		filename = file['filename']
-		file['filename'] = '%-9s%-3s' % (os.path.splitext(filename)[0][0:9], ext)
-
-		# Entrée à ajouter
-		new_entry = file['filename']
-		new_entry += chr(file['track'])
-		new_entry += chr(file['sector'])
-		new_entry += chr(nbsector & 0x00ff)
-		new_entry += chr( ((nbsector>>8) & 0x1f) | 0x40 )	# 0x40: Fichier non protégé / 0xC0: Fichier protégé
-
-		# Lecture premier secteur du catalogue S:0 P:20 S:4
-
-		P=20
-		S=4
-		ok = False
-
-		while P != 0x00 and S != 0x00 and ok == False:
-			print "Lecture: P=%d, S=%d" % (P, S)
-			cat = diskimg['diskimg'][P][S-1]
-			print dump(cat)
-
-			# Chainage vers le catalogue suivant: 00 00 si dernier secteur
-			P_next = ord(cat[0])
-			S_next = ord(cat[1])
-
-			# Pour le chainage en cas d'extension
-			P_last = P
-			S_last = S
-
-			entry_offset = ord(cat[2])
-			if entry_offset != 0x00:
-				print "Ajout en P=%d, S=%d, E=%d" % (P, S, entry_offset)
-				# cat = cat[:entry_offset] + new_entry + cat[entry_offset+16:]
-				cat = cat[0:2]+chr((entry_offset+0x10)&0xff)+cat[3:entry_offset] + new_entry + cat[entry_offset+16:]
-				diskimg['diskimg'][P][S-1] = cat
-				ok = True
-				break
-
-			else:
-				if P_next == 0x00 and S_next == 0x00:
-					if P == 0x14:
-						# Les secteurs 7/10/13/16 sont réservés pour le catalogue
-						# mais ne sont pas initialisés
-						if S == 4:
-							S_next = 7
-
-							# Chainage
-							cat = chr(P) + chr(S_next) + cat[0x03:]
-							diskimg['diskimg'][P][S-1] = cat
-
-							# +1 pour le nombre de secteurs catalogue
-							bitmap[0] = bitmap[0][0x00:0x08] + chr(ord(bitmap[0][0x08:0x09])+1) + bitmap[0][0x09:]
-
-							new_cat = diskimg['diskimg'][P][S_next-1]
-							if ord(new_cat[0x02]) == 0x00:
-								new_cat = new_cat[0x00:0x02] + chr(0x10) + new_cat[0x03:]
-								diskimg['diskimg'][P][S_next-1] = new_cat
-
-						elif S == 7:
-							S_next = 10
-
-							# Chainage
-							cat = chr(P) + chr(S_next) + cat[0x03:]
-							diskimg['diskimg'][P][S-1] = cat
-
-							# +1 pour le nombre de secteurs catalogue
-							bitmap[0] = bitmap[0][0x00:0x08] + chr(ord(bitmap[0][0x08:0x09])+1) + bitmap[0][0x09:]
-
-							new_cat = diskimg['diskimg'][P][S_next-1]
-							if ord(new_cat[0x02]) == 0x00:
-								new_cat = new_cat[0x00:0x02] + chr(0x10) + new_cat[0x03:]
-								diskimg['diskimg'][P][S_next-1] = new_cat
-
-						elif S == 10:
-							S_next = 13
-
-							# Chainage
-							cat = chr(P) + chr(S_next) + cat[0x03:]
-							diskimg['diskimg'][P][S-1] = cat
-
-							# +1 pour le nombre de secteurs catalogue
-							bitmap[0] = bitmap[0][0x00:0x08] + chr(ord(bitmap[0][0x08:0x09])+1) + bitmap[0][0x09:]
-
-							new_cat = diskimg['diskimg'][P][S_next-1]
-							if ord(new_cat[0x02]) == 0x00:
-								new_cat = new_cat[0x00:0x02] + chr(0x10) + new_cat[0x03:]
-								diskimg['diskimg'][P][S_next-1] = new_cat
-
-						elif S == 13:
-							S_next = 16
-
-							# Chainage
-							cat = chr(P) + chr(S_next) + cat[0x03:]
-							diskimg['diskimg'][P][S-1] = cat
-
-							# +1 pour le nombre de secteurs catalogue
-							bitmap[0] = bitmap[0][0x00:0x08] + chr(ord(bitmap[0][0x08:0x09])+1) + bitmap[0][0x09:]
-
-							new_cat = diskimg['diskimg'][P][S_next-1]
-							if ord(new_cat[0x02]) == 0x00:
-								new_cat = new_cat[0x00:0x02] + chr(0x10) + new_cat[0x03:]
-								diskimg['diskimg'][P][S_next-1] = new_cat
-				P = P_next
-				S = S_next
-
-		if ok == True:
-			diskimg['diskimg'][20][2-1] = bitmap[0]
-			diskimg['diskimg'][20][3-1] = bitmap[1]
-
-			diskimg['bitmap'] = bitmap
-			diskimg['directory'] = diskimg['diskimg'][20][4-1]
-
-			return diskimg
-
-		else:
-			# Extension du catalogue
-			bitmap = diskimg['bitmap']
-			[P, S] = self.find_free_sector(bitmap)
-			print "Directory extension Track: %d, Sector: %d" % (P, S)
-
-			if P == -1:
-				return False
-
-			bitmap = self.set_bitmap_sector_used(bitmap, P, S)
-
-			# +1 pour le nombre de secteurs catalogue
-			bitmap[0] = bitmap[0][0x00:0x08] + chr(ord(bitmap[0][0x08:0x09])+1) + bitmap[0][0x09:]
-
-			diskimg['diskimg'][20][2-1] = bitmap[0]
-			diskimg['diskimg'][20][3-1] = bitmap[1]
-			diskimg['bitmap'] = bitmap
-
-			# Chainage
-			cat = diskimg['diskimg'][P_last][S_last-1]
-			cat = chr(P) + chr(S) + cat[2:]
-			diskimg['diskimg'][P_last][S_last-1] = cat
-
-			diskimg['directory'] = diskimg['diskimg'][20][4-1]
-
-			# Nouveau secteur du catalogue
-			cat = chr(0x00) +chr(0) + chr(0x10) + chr(0x00)* 253
-
-			# Ajout de l'entrée
-			entry_offset = 16+0*16
-			cat = cat[:entry_offset] + new_entry + cat[entry_offset+16:]
-			diskimg['diskimg'][P][S-1] = cat
-
-			print dump(diskimg['diskimg'][P][S-1])
-			return diskimg
-
-
 	def find_directory_entry(self, filename):
 		print '*** find_directory_entry(%s)' % filename
 
@@ -744,172 +285,6 @@ class sedoric():
 
 		return False
 
-	def del_directory_entry(self, diskimg, file):
-		print '*** del_directory_entry'
-
-	def add_file(self, file):
-		diskimg = self.diskimg
-
-		nbsector = int(ceil(float(file['size'])/float(self.sectorsize)))
-		nbfcb = 1
-
-		# On force le nom du fichier en majuscule
-		file['filename'] = file['filename'].upper()
-
-		#
-		# Optimisation possible:
-		#	Vérifier qu'il reste assez de secteurs disponibles en regardant dans la bitmap[0]
-		#
-		print '***add_file (%s): filename: %s, start: %04X, size: %d (%d secteurs), type: %s' % (__name__, file['filename'], file['start'], file['size'], nbsector, file['content_type'])
-
-		bitmap = diskimg['bitmap']
-
-		[fcb_track, fcb_sector] = self.find_free_sector(bitmap)
-
-		if fcb_track == -1:
-			return -errno.ENOSPC
-
-		sedoric_fcb_track = fcb_track
-		if fcb_track >= self.tracks:
-			sedoric_fcb_track += 128 - self.tracks
-
-		print "FCB Track: %d, Sector: %d" % (sedoric_fcb_track, fcb_sector)
-
-		bitmap = self.set_bitmap_sector_used(bitmap, fcb_track, fcb_sector)
-
-		# Un FCB ne peut decrire qu'un fichier de 122 secteurs pour le premier et 127 pour les suivants
-		fcb = [0x00] * 256
-		fcb[0x00:0x02] = [0x00,0x00] # Pas de chainage
-		fcb[0x02:0x03] = [0xff] # Premier FCB
-
-		content_type = file['content_type']
-
-		type = 0x00
-		if content_type == 'Direct':
-			type = 0x08
-		elif content_type == 'Sequentiel':
-			type = 0x10
-		elif content_type == 'Windows':
-			type = 0x20 | 0x40
-		elif content_type == 'data' or content_type == 'asm':
-			type = 0x40
-		elif content_type == 'basic':
-			type = 0x80
-
-		fcb[0x03:0x04] = [type] # Type du fichier
-		file_end = file['start'] + file['size'] -1
-		fcb[0x04:0x06] = [file['start'] & 0x00ff, file['start'] >> 8]
-		fcb[0x06:0x08] = [file_end & 0x00ff, file_end >> 8]
-		fcb[0x08:0x0A] = [0x00, 0x00] # Adresse de demarrage si Autostart
-		fcb[0x0A:0x0C] = [nbsector & 0x00ff, nbsector >> 8] # Taille en secteurs
-
-		file['track'] = sedoric_fcb_track
-		file['sector'] = fcb_sector
-
-		i = 0
-		while i < nbsector:
-			[file_track, file_sector] = self.find_free_sector(bitmap)
-
-			if file_track == -1:
-				return -errno.ENOSPC
-
-			sedoric_file_track = file_track
-			if file_track >= self.tracks:
-				sedoric_file_track += 128 - self.tracks
-
-			print "***add_file (%s): File T= %d, S= %d" % (__name__, sedoric_file_track, file_sector)
-
-			bitmap = self.set_bitmap_sector_used(bitmap, file_track, file_sector)
-			sector = file['file'][i*self.sectorsize:(i+1)*self.sectorsize]
-			if len(sector) == self.sectorsize:
-				diskimg['diskimg'][file_track][file_sector-1] = sector
-			else:
-				diskimg['diskimg'][file_track][file_sector-1] = sector + diskimg['diskimg'][file_track][file_sector-1][len(sector):]
-
-			# 122 pour le premier FCB, 127 pour les suivants
-			# Offset + 0x0c pour le premier FCB, +0x02 pour les suivants
-			# TODO: Gérer les FCB > 1
-			fcb_offset = (i % 122)*2
-			fcb[0x0c+fcb_offset:0x0e+fcb_offset] = [sedoric_file_track, file_sector]
-
-			i += 1
-			if i%122 == 0:
-				nbfcb += 1
-				P = fcb_track
-				S = fcb_sector
-				[fcb_track, fcb_sector] = self.find_free_sector(bitmap)
-
-				if fcb_track == -1:
-					return -errno.ENOSPC
-
-				sedoric_fcb_track = fcb_track
-				if fcb_track >= self.tracks:
-					sedoric_fcb_track += 128 - self.tracks
-
-				print "FCB extension Track: %d, Sector: %d" % (sedoric_fcb_track, fcb_sector)
-				bitmap = self.set_bitmap_sector_used(bitmap, fcb_track, fcb_sector)
-
-				fcb[0:2] = [sedoric_fcb_track, fcb_sector]
-				diskimg['diskimg'][P][S-1] = ''.join([chr(x) for x in fcb])
-				print dump(diskimg['diskimg'][P][S-1])
-
-				diskimg['diskimg'][20][2-1] = bitmap[0]
-				diskimg['diskimg'][20][3-1] = bitmap[1]
-				diskimg['bitmap'] = bitmap
-
-				fcb = [0x00] * 256
-				fcb[0x00:0x02] = [0x00,0x00] # Pas de chainage
-
-		diskimg['diskimg'][20][2-1] = bitmap[0]
-		diskimg['diskimg'][20][3-1] = bitmap[1]
-		diskimg['bitmap'] = bitmap
-		diskimg['diskimg'][fcb_track][fcb_sector-1] = ''.join([chr(x) for x in fcb])
-
-		print '***add_file (%s): Last FCB: T=%d, S=%d' % (__name__, sedoric_fcb_track, fcb_sector)
-		print dump(''.join([chr(x) for x in fcb]))
-
-		# Ajoute le nombre de FCB à la taille du fichier
-		file['size'] += self.sectorsize * nbfcb
-
-		diskimg = self.add_directory_entry(diskimg, file)
-		if diskimg != False:
-			self.diskimg = diskimg
-			return True
-
-		else:
-			print '***add_file (%s): "%s" directory full => rollback' % (__name__, file['filename'])
-			return -errno.ENOSPC
-
-	def unlink(self, file):
-		print '*** unlink'
-		return -errno.ENOSYS
-
-	def rename(self, oldPath, newPath):
-		print '*** rename(%s,%s)' % (oldPath, newPath)
-
-		ret = self.find_directory_entry(oldPath)
-		if ret == False:
-			return -errno.ENOENT
-
-		filename = os.path.splitext(newPath)
-		newPath = '%-9s.%-3s' % (filename[0],filename[1][1:4])
-
-		if self.find_directory_entry(newPath) != False:
-			return -errno.EEXIST
-
-		P=ret[0]
-		S=ret[1]
-		entry_offset = ret[2]
-		newPath = '%-9s%-3s' % (filename[0],filename[1][1:4])
-		cat = self.diskimg['diskimg'][P][S-1]
-		cat = cat[0:entry_offset]+newPath+cat[entry_offset+12:]
-		self.diskimg['diskimg'][P][S-1] = cat
-
-		print '**** Apres le rename'
-		print dump(cat)
-
-		return True
-
 	def loaddisk(self):
 		print '*** loaddisk'
 		self.diskimg = {'diskimg': [], 'bitmap': '', 'directory': ''}
@@ -932,29 +307,6 @@ class sedoric():
 		self.diskimg = {'diskimg': diskimg, 'bitmap': bitmap, 'directory': directory}
 
 		print dump(directory)
-
-	def newdisk(self,filename,diskname, diskimg):
-		print '*** newdisk [INUTILISE]'
-		header = chr(0) * 256
-
-		fd = open(filename,'wb')
-		fd.write(header)
-		bitmap = [ord(x) for x in diskimg['bitmap']]
-
-		for head in range(0,self.sides):
-			for cyl in range(0,self.tracks):
-				self.init_track()
-				# buffer = [0x6C] * 256
-				for sect in range(1,self.sectors+1):
-					buffer = [ord(x) for x in diskimg['diskimg'][cyl*(head+1)][sect-1]]
-					self.store_sector(buffer,cyl, head, sect, 1)
-
-				self.flush_track(fd)
-
-		self.flush_diskid(fd)
-
-		fd.close()
-
 
 	def read_diskname(self):
 		P = 20
@@ -997,14 +349,14 @@ class sedoric():
 			self.read_dir()
 
 		for filename in sorted(self.dirents.keys()):
-			print 'S:%01d P:%02d S:%02d %c %s %c %3d (%s)' % (
+			print 'S:%01d P:%03d S:%02d        %c %s %3d   %02X (%s)' % (
 					self.dirents[filename]['side'],
 					self.dirents[filename]['track'],
 					self.dirents[filename]['sector'],
 					self.dirents[filename]['lock'],
 					filename,
-					self.dirents[filename]['type'],
 					self.dirents[filename]['size'],
+					self.dirents[filename]['type'],
 					self.dirents[filename]['content_type'])
 
 	def display_bitmap(self):
@@ -1265,28 +617,10 @@ class sedoric():
 		return {'file': file[0:size], 'start': start, 'size': size}
 
 
-
-def CreateDisk():
-
-	diskimg = oricdsk()
-	diskimg.sides= 2
-	diskimg.tracks = 41
-	diskimg.sectors = 17
-	diskimg.geometry = 1
-	diskimg.signature = 'MFM_DISK'
-	diskimg.crc = 0
-	diskimg.trackbuf = []
-	diskimg.ptr_track = 0
-
-	diskimg.newdisk('test.dsk','EMPTY')
-
-
-def main():
-	print sys.argv[1]
-
+def main(diskname, pattern):
 	fs = sedoric()
-	fs.source = sys.argv[1]
-	test = 0
+	fs.source = diskname
+	pattern = pattern.upper()
 
 	try:
 		fs.source = os.path.abspath(fs.source)
@@ -1300,7 +634,6 @@ def main():
 			track = fs.read_track(0,0)
 			offset = track['sectors'][1]['data_ptr'] +1
 			dos = track['raw'][offset:offset+256][24:32].rstrip()
-			# dos = track['sectors'][0][24:32].rstrip()
 
 			if dos in ['XL DOS', 'SEDORIC', 'RADOS', 'ORICDOS']:
 				fs.dos = dos
@@ -1330,40 +663,38 @@ def main():
 
 		if fs.dos == 'SEDORIC':
 
-			print 'DOS      : %s' % (dos)
-
 			# fs.display_bitmap()
 
 			cat = fs.read_dir()
-
-			#cat = fs.read_file('COPY    .CMD')['file']
-			#print dump(cat)
-
-			#P = 20
-			#track = fs.read_track(P,0)
-			#for S in range(1,fs.sectors+1):
-			#	offset = track['sectors'][S]['data_ptr'] +1
-			#	cat = track['raw'][offset:offset+256]
-			#	l = len(cat)
-			#	# print  map (lambda s: hex(s), struct.unpack('%dB' % l,cat[0:l]))
-			#	print 'P:%d S:%d' % (P, S)
-			#	print dump(cat)
-                
 			# pprint(cat)
+
 			fs._cat()
 
 			for fn in cat.keys():
-				print
-				raw = fs.read_file(fn)
-				pprint(raw)
+				if fnmatch.fnmatch(cat[fn]['stripped_name'],pattern):
+					print
+					raw = fs.read_file(fn)
+					pprint(raw)
 
-	except AttributeError, e:
+	except IOError, e:
 		print "Erreur", e
 		sys.exit(1)
 
+
+
+
 if __name__ == '__main__':
-	main()
+	# parser = argparse.ArgumentParser(prog='sedoric', description='Extract files from sedoric image disk', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+	parser = argparse.ArgumentParser(description = __description__ , formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-# __init__()
+	# parser.add_argument('diskname', type=argparse.FileType('rb'), help='Disk image file')
+	parser.add_argument('diskname', type=str, help='Disk image file')
+	parser.add_argument('file', type=str, nargs='*', metavar='file', default=['*.*'], help='file(s) to extract')
+	# parser.add_argument('--output', '-o', type=argparse.FileType('wb'), default=sys.stdout, help='MAP filename')
+	parser.add_argument('--output', '-o', type=argparse.FileType('wb'), default=None, help='MAP filename')
+	parser.add_argument('--version', '-v', action='version', version= '%%(prog)s v%s' % __version__)
 
+	args = parser.parse_args()
+
+	main(args.diskname, args.file[0])
 
