@@ -652,8 +652,9 @@ def main():
 							output.write(b'\x00' * 6)
 							output.write(chr(0b01001001))
 							output.write(struct.pack('<H',raw['start']))
-							output.write(struct.pack('<H',raw['start']+raw['size']))
-							output.write(struct.pack('<H',0))
+							output.write(struct.pack('<H',raw['end']))
+							#output.write(struct.pack('<H',raw['start']+raw['size']))
+							output.write(struct.pack('<H',raw['exec']))
 
 						elif args.header == 'tape':
 							output.write('\x16\x16\x16\x16\x24')
