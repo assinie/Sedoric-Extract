@@ -6,117 +6,48 @@
 # $Id: sedoric.py $
 # $Author: assinie <github@assinie.info> $
 # $Date: 2018-02-27 $
-# $Revision: 0.1 $
+# $Revision: 0.4 $
 #
 #------------------------------------------------------------------------------
 
-
-#
-#	Ok pour SEDORIC2, Pb avec SEDORIC3, a voir...
-#
-
-__program_name__ = 'sedoric'
-__description__ = "Extract files from Sedoric disk image"
-__plugin_type__ = 'OS'
-__version__ = '0.4'
-
-ORIC_SEDORIC_VERSION = '0.4'
-
-from utils import dump
-from transform import transform
+from __future__ import print_function
 
 from pprint import pprint
 
-#import time
+import os 
 
-#import stat    # for file properties
-import os      # for filesystem modes (O_RDONLY, etc)
-#import errno   # for error number codes (ENOENT, etc)
-               # - note: these must be returned as negatives
-
-#from math import ceil
-#import getpass
 import sys
 import struct
 
 import argparse
 import fnmatch
 
-def SEDORIC_DirEntry(self, entry):
-	# name = entry[0:12]
-	name = entry[0:9] + '.' + entry[9:12]
-	stripped_name = entry[0:9].rstrip()
-	stripped_ext = entry[9:12].rstrip()
-	if stripped_ext > '':
-		stripped_name = stripped_name + '.' + stripped_ext
-
-	P_FCB = ord(entry[12])
-	S_FCB = ord(entry[13])
-
-	# size = taille en secteur
-	size = ord(entry[14])
-
-	lock = entry[15]
-	type = ' '
-	content_type = ' '
-	side = 0
-
-	size += (ord(lock) & 0x3f) * 256
-
-	if ord(lock) & 0xC0 == 0x40:
-		lock = 'U'
-	elif ord(lock) & 0xC0 == 0xC0:
-		lock = 'L'
-	else:
-		lock = '?'
+#------------------------------------------------------------------------------
+__program_name__ = 'sedoric'
+__description__ = "Extract files from Sedoric disk image"
+__plugin_type__ = 'OS'
+__version__ = '0.4'
 
 
-	if P_FCB + S_FCB != 0:
-		# print '%c  %s  %c       %d SECTORS' % (lock, name, type, len)
-
-		# si track >= 0x80 => track = track - 0x80, face = 2
-		#if P_FCB >= 0x80:
-		#	P_FCB -= 0x80
-		#	side = 1
-
-		# print 'S:%d P:%02d S:%02d %c %s %c %d' % (side, P_FCB, S_FCB, lock, name, type, size)
-		# Pour avoir le content_type, il lire le FCB du fichier
-		#track = self.read_track(P_FCB,side)
-		track = self.read_track(P_FCB & 0x7f, (P_FCB & 0x80) >> 7)
-
-		offset = track['sectors'][S_FCB]['data_ptr'] +1
-		cat = track['raw'][offset:offset+256]
-
-		type = ord(cat[3])
-		#
-		# b7 b6 b5 b4 b3 b2 b1 b0
-		# |  |  |  |  |  +___+ +--> Auto
-		# |  |  |  |  |    +------> Inutilisés
-		# |  |  |  |  +-----------> Direct
-		# |  |  |  +--------------> Sequentiel
-		# |  |  +-----------------> Windows (b6=1 aussi)
-		# |  +--------------------> Data
-		# +-----------------------> Basic
-		#
-
-		content_type = '???'
-		if type & 0x08 == 0x08:
-				content_type = 'Direct'
-		elif type & 0x10 == 0x10:
-				content_type = 'Sequentiel'
-		elif type & 0x20 == 0x20:
-				# type = 0x20 | 0x40
-				content_type = 'Windows'
-		elif type & 0x40 == 0x40:
-				content_type = 'data'
-		elif type & 0x80 == 0x80:
-				content_type = 'basic'
-
-		return {name: {'stripped_name': stripped_name, 'side': side, 'track': P_FCB, 'sector': S_FCB, 'lock': lock, 'type': type, 'size': size, 'content_type': content_type}}
-
-	return {}
+#------------------------------------------------------------------------------
+def eprint(*args, **kwargs):
+	    print(*args, file=sys.stderr, **kwargs)
 
 
+FILTER=''.join([(len(repr(chr(x)))==3) and chr(x) or '.' for x in range(256)])
+
+def dump(src, offset=0, length=16):
+	N=0; result=''
+	while src:
+		s,src = src[:length],src[length:]
+		hexa = ' '.join(["%02X"%ord(x) for x in s])
+		s = s.translate(FILTER)
+		result += "%04X   %-*s   %s\n" % (N+offset, length*3, hexa, s)
+		N+=length
+	return result
+
+
+#------------------------------------------------------------------------------
 class sedoric():
 	def __init__(self, source = 'DEFAULT'):
 		self.dirents = {}
@@ -130,13 +61,13 @@ class sedoric():
 		self.signature = 'MFM_DISK'
 		self.diskname = ''
 		self.dostype = 'SEDORIC'
+		self.dos = ''
 		self.disktype = ''
 
 		self.crc = 0
 		self.trackbuf = []
 		self.ptr_track = 0
 
-		self.transform = transform()
 
 	def validate(self, diskimg):
 		ret = None
@@ -148,7 +79,7 @@ class sedoric():
 				self.signature = f.read(8)
 
 				if self.signature != 'MFM_DISK':
-					print "Erreur signature '%s' incorrecte pour %s" % (self.signature, diskimg)
+					print("Erreur signature '%s' incorrecte pour %s" % (self.signature, diskimg))
 				else:
 					self.source = diskimg
 
@@ -157,6 +88,8 @@ class sedoric():
 					dos = track['raw'][offset:offset+256][24:32].rstrip()
 
 					if dos in ['XL DOS', 'SEDORIC', 'RADOS', 'ORICDOS']:
+
+						self.dos = dos
 
 						self.sectors = len(track['sectors'])
 						self.offset = 0x100
@@ -167,23 +100,26 @@ class sedoric():
 						self.geometry = struct.unpack("<L",f.read(4))[0]
 
 						ret = {'source': diskimg,
-							'sides': self.sides,
-							'tracks': self.tracks,
-							'sectors': self.sectors,
-							'sectorsize': self.sectorsize,
-							'geometry': self.geometry,
-							'offset': self.offset }
+								'dos': self.dos,
+								'sides': self.sides,
+								'tracks': self.tracks,
+								'sectors': self.sectors,
+								'sectorsize': self.sectorsize,
+								'geometry': self.geometry,
+								'offset': self.offset
+								}
 
 						#self.read_diskname()
 						#self.read_dir()
-						self.loaddisk()
+						#self.loaddisk()
 
-		except:
-			e = sys.exc_info()[0]
-			print "Erreur " , sys.exc_info()
+		except IOError, e:
+			# e = sys.exc_info()[0]
+			# print "Erreur " , sys.exc_info()
+			eprint(e)
 			self.source = None
 			ret = None
-			raise
+			# raise
 
 		return ret
 
@@ -243,70 +179,6 @@ class sedoric():
 
 		return read_track
 
-	def find_directory_entry(self, filename):
-		print '*** find_directory_entry(%s)' % filename
-
-		diskimg = self.diskimg
-
-		# Lecture premier secteur du catalogue S:0 P:20 S:4
-
-		P=20
-		S=4
-		ok = False
-
-		while P != 0x00 and S != 0x00 and ok == False:
-			# print "Lecture: P=%d, S=%d" % (P, S)
-			cat = diskimg['diskimg'][P][S-1]
-			# print dump(cat)
-
-			# Chainage vers le catalogue suivant: 00 00 si dernier secteur
-			P_next = ord(cat[0])
-			S_next = ord(cat[1])
-
-			entry_offset_max = ord(cat[2])
-			if entry_offset_max == 0:
-				# Le catalogue est plein
-				entry_offset_max = 256
-
-			for entry_offset in range(0x10, entry_offset_max, 0x10):
-				entry = '%s.%s' % (cat[entry_offset:entry_offset+9], cat[entry_offset+9:entry_offset+12])
-				# print '**** test %s' % entry
-				if filename == entry:
-					ok = True
-					break
-
-			if ok == False:
-				P = P_next
-				S = S_next
-
-		if ok == True:
-			# print '**** trouvé en T=%d, S=%d, offset=%d' % (P,S,entry_offset)
-			return ([P,S,entry_offset])
-
-		return False
-
-	def loaddisk(self):
-		print '*** loaddisk'
-		self.diskimg = {'diskimg': [], 'bitmap': '', 'directory': ''}
-		diskimg = []
-
-		for P in range(0, self.tracks * self.sides):
-			diskimg.append([])
-
-			track = self.read_track(P,0)
-
-			for S in range(1, self.sectors +1):
-				# Calcul de l'offset du secteur (+1 pour sauter l'ID)
-				offset = track['sectors'][S]['data_ptr'] +1
-				sector = track['raw'][offset:offset+256]
-
-				diskimg[P].append(sector)
-
-		bitmap = [diskimg[20][2-1], diskimg[20][3-1]]
-		directory = diskimg[20][4-1]
-		self.diskimg = {'diskimg': diskimg, 'bitmap': bitmap, 'directory': directory}
-
-		print dump(directory)
 
 	def read_diskname(self):
 		P = 20
@@ -335,6 +207,7 @@ class sedoric():
 
 		return self.diskname
 
+
 	def read_dir(self):
 		self.dirents = self.SEDORIC_cat()
 		return self.dirents
@@ -349,7 +222,7 @@ class sedoric():
 			self.read_dir()
 
 		for filename in sorted(self.dirents.keys()):
-			print 'S:%01d P:%03d S:%02d        %c %s %3d   %02X (%s)' % (
+			print('S:%01d P:%03d S:%02d        %c %s %3d   %02X (%s)' % (
 					self.dirents[filename]['side'],
 					self.dirents[filename]['track'],
 					self.dirents[filename]['sector'],
@@ -358,6 +231,8 @@ class sedoric():
 					self.dirents[filename]['size'],
 					self.dirents[filename]['type'],
 					self.dirents[filename]['content_type'])
+                    )
+
 
 	def display_bitmap(self):
 		P = 20
@@ -366,7 +241,7 @@ class sedoric():
 		track = self.read_track(P,0)
 		offset = track['sectors'][S]['data_ptr'] +1
 		raw = track['raw'][offset:offset+256]
-		print dump(raw)
+		print(dump(raw))
 
 		S = 3
 		offset = track['sectors'][S]['data_ptr'] +1
@@ -387,13 +262,14 @@ class sedoric():
 
 		Smax = struct.unpack('<H', raw2[0x02:0x04])[0]
 		ST =  ord(raw[0x07:0x08])
-		print 'Free sectors : %d / %d' % (struct.unpack('<H',raw[0x02:0x04])[0], Smax)
-		print 'Files        : %d' % (struct.unpack('<H',raw[0x04:0x06])[0])
-		print 'Tracks/Side  : %d' % (ord(raw[0x06:0x07]))
-		print 'Sectors/Track: %d' % (ST)
-		print 'Directory    : %d' % (ord(raw[0x08:0x09]))
-		print 'Type         : %s' % (ord(raw[0x0A:0x0B]))
-		print 'Side(s)      : %X' % (1+(ord(raw[0x09:0x0A])>>7))
+		print('Free sectors : %d / %d' % (struct.unpack('<H',raw[0x02:0x04])[0], Smax))
+		print('Files        : %d' % (struct.unpack('<H',raw[0x04:0x06])[0]))
+		print('Tracks/Side  : %d' % (ord(raw[0x06:0x07])))
+		print('Sectors/Track: %d' % (ST))
+		print('Directory    : %d' % (ord(raw[0x08:0x09])))
+		print('Type         : %s' % (ord(raw[0x0A:0x0B])))
+		print('Side(s)      : %X' % (1+(ord(raw[0x09:0x0A])>>7)))
+		print('')
 
 		out = []
 		for P in range(0, self.tracks):
@@ -460,7 +336,7 @@ class sedoric():
 		cat = track['raw'][offset:offset+256]
 
 		if ord(cat[0]) != 0xff or ord(cat[1]) != 0x00:
-			print "Erreur disque incorrect"
+			print("Erreur disque incorrect")
 
 		free_sectors = struct.unpack('<H',cat[02:04])[0]
 		files = struct.unpack('<H',cat[04:06])[0]
@@ -503,11 +379,86 @@ class sedoric():
 
 			for i in range(0,15):
 				entry_offset = 16+i*16
-				entry = SEDORIC_DirEntry(self, cat[entry_offset:entry_offset+16])
+				entry = self.SEDORIC_DirEntry(cat[entry_offset:entry_offset+16])
 				if len(entry) >0:
 					dirents[entry.keys()[0]] = entry.values()[0]
 
 		return dirents
+
+
+	def SEDORIC_DirEntry(self, entry):
+		# name = entry[0:12]
+		name = entry[0:9] + '.' + entry[9:12]
+		stripped_name = entry[0:9].rstrip()
+		stripped_ext = entry[9:12].rstrip()
+		if stripped_ext > '':
+			stripped_name = stripped_name + '.' + stripped_ext
+
+		P_FCB = ord(entry[12])
+		S_FCB = ord(entry[13])
+
+		# size = taille en secteur
+		size = ord(entry[14])
+
+		lock = entry[15]
+		type = ' '
+		content_type = ' '
+		side = 0
+
+		size += (ord(lock) & 0x3f) * 256
+
+		if ord(lock) & 0xC0 == 0x40:
+			lock = 'U'
+		elif ord(lock) & 0xC0 == 0xC0:
+			lock = 'L'
+		else:
+			lock = '?'
+
+
+		if P_FCB + S_FCB != 0:
+			# print '%c  %s  %c       %d SECTORS' % (lock, name, type, len)
+
+			# si track >= 0x80 => track = track - 0x80, face = 2
+			#if P_FCB >= 0x80:
+			#	P_FCB -= 0x80
+			#	side = 1
+
+			# print 'S:%d P:%02d S:%02d %c %s %c %d' % (side, P_FCB, S_FCB, lock, name, type, size)
+			# Pour avoir le content_type, il lire le FCB du fichier
+			#track = self.read_track(P_FCB,side)
+			track = self.read_track(P_FCB & 0x7f, (P_FCB & 0x80) >> 7)
+
+			offset = track['sectors'][S_FCB]['data_ptr'] +1
+			cat = track['raw'][offset:offset+256]
+
+			type = ord(cat[3])
+			#
+			# b7 b6 b5 b4 b3 b2 b1 b0
+			# |  |  |  |  |  +___+ +--> Auto
+			# |  |  |  |  |    +------> Inutilisés
+			# |  |  |  |  +-----------> Direct
+			# |  |  |  +--------------> Sequential
+			# |  |  +-----------------> Windows (b6=1 aussi)
+			# |  +--------------------> Data
+			# +-----------------------> Basic
+			#
+
+			content_type = '???'
+			if type & 0x08 == 0x08:
+					content_type = 'Direct'
+			elif type & 0x10 == 0x10:
+					content_type = 'Sequential'
+			elif type & 0x20 == 0x20:
+					# type = 0x20 | 0x40
+					content_type = 'Windows'
+			elif type & 0x40 == 0x40:
+					content_type = 'data'
+			elif type & 0x80 == 0x80:
+					content_type = 'basic'
+
+			return {name: {'stripped_name': stripped_name, 'side': side, 'track': P_FCB, 'sector': S_FCB, 'lock': lock, 'type': type, 'size': size, 'content_type': content_type}}
+
+		return {}
 
 	def SEDORIC_read_file(self, filename):
 		file = ''
@@ -544,8 +495,8 @@ class sedoric():
 				# (structure simplifiee)
 				# print 'P:%d S:%d' %(P_FCB, S_FCB)
 
-				print 'Fichier              : ', filename
-				print 'FCB01                : %02X' % FCB01
+				print('Fichier              : ', filename)
+				print('FCB01                : %02X' % FCB01)
 
 				if (FCB01 == 0xff):
 					# Uniquement pour le premier FCB
@@ -561,7 +512,7 @@ class sedoric():
 					if type & 0x08 == 0x08:
 							type_text.append('Direct')
 					if type & 0x10 == 0x10:
-							type_text.append('Sequentiel')
+							type_text.append('Sequential')
 					if type & 0x20 == 0x20:
 							type_text.append('Windows')
 					if type & 0x40 == 0x40:
@@ -576,8 +527,8 @@ class sedoric():
 						record_size = end
 						start = record_size
 						size = record_number * record_size
-						print 'Nombre de fiches     : ', record_number
-						print 'Longueur d une fiche : ', record_size
+						print('Nombre de fiches     : ', record_number)
+						print('Longueur d une fiche : ', record_size)
 
 					elif type & 0x10 == 0x10:
 						# Note: La fin réelle du fichier est au 1er 0x00 rencontré
@@ -585,14 +536,14 @@ class sedoric():
 
 					else:
 						size = end - start +1
-						print 'Adresse de chargement: ', hex(start)
-						print 'Adresse de fin       : ', hex(end)
+						print('Adresse de chargement: ', hex(start))
+						print('Adresse de fin       : ', hex(end))
 
-					print 'Taille               : ', size
-					print 'Type                 :  %x (%s)' % (type, ','.join(type_text))
-					print 'Addresse Execution   : ', hex(exec_addr)
-					print 'Nombre de secteurs   : ', sector_count
-					print
+					print('Taille               : ', size)
+					print('Type                 :  %x (%s)' % (type, ','.join(type_text)))
+					print('Addresse Execution   : ', hex(exec_addr))
+					print('Nombre de secteurs   : ', sector_count)
+					print('')
 					n = 0x0c
 
 				else:
@@ -619,119 +570,120 @@ class sedoric():
 						file += track['raw'][offset:offset+256]
 
 		# /!\ 'end' et 'exec_addr' non valables si type = direct
-		# /!\ 'start', 'end', 'exec_addr' non valables si type = sequentiel
+		# /!\ 'start', 'end', 'exec_addr' non valables si type = sequential
 		return {'file': file[0:size], 'start': start, 'size': size, 'end': end, 'exec': exec_addr, 'type': type}
 
 
-def main(diskname, pattern, fHeader):
-	fs = sedoric()
-	fs.source = diskname
+#------------------------------------------------------------------------------
+def main():
 
-	try:
-		fs.source = os.path.abspath(fs.source)
-
-		with open(fs.source,'rb') as f:
-			fs.signature = f.read(8)
-			if fs.signature != 'MFM_DISK':
-				print "Erreur signature '%s' incorrecte pour %s" % (fs.signature, fs.source)
-				sys.exit(1)
-
-			track = fs.read_track(0,0)
-			offset = track['sectors'][1]['data_ptr'] +1
-			dos = track['raw'][offset:offset+256][24:32].rstrip()
-
-			if dos in ['XL DOS', 'SEDORIC', 'RADOS', 'ORICDOS']:
-				fs.dos = dos
-			else:
-				fs.dos = 'FTDOS'
-
-			fs.read_diskname()
-
-			fs.sectors = len(track['sectors'])
-			fs.offset = 0x100
-			fs.sides = struct.unpack("<L", f.read(4))[0]
-			fs.tracks = struct.unpack("<L", f.read(4))[0]
-			fs.geometry = struct.unpack("<L",f.read(4))[0]
-
-			print 'Signature: ', fs.signature
-			print 'DOS      : ', fs.dos
-			print 'Faces    : ', fs.sides
-			print 'Pistes   : ', fs.tracks
-			print 'Secteurs : ', fs.sectors
-			print 'Geometrie: ', fs.geometry
-			print 'Offset   : ', fs.offset
-			print ''
-			print '   VOLUME : %s (%s)' % (fs.diskname, fs.disktype)
-			print ''
-
-		f.close()
-
-		if fs.dos == 'SEDORIC':
-
-			# fs.display_bitmap()
-
-			cat = fs.read_dir()
-			# pprint(cat)
-
-			if pattern is None:
-				fs._cat()
-
-			else:
-				pattern = pattern.upper()
-
-				for fn in cat.keys():
-					if fnmatch.fnmatch(cat[fn]['stripped_name'],pattern):
-						raw = fs.read_file(fn)
-						# pprint(raw)
-
-						with open(cat[fn]['stripped_name'],'wb') as output:
-
-							if fHeader == 'orix':
-								output.write(b'\x01\x00ori\x01\x00')
-								output.write(b'\x00' * 6)
-								output.write(chr(0b01001001))
-								output.write(struct.pack('<H',raw['start']))
-								output.write(struct.pack('<H',raw['start']+raw['size']))
-								output.write(struct.pack('<H',0))
-
-							elif fHeader == 'tape':
-								output.write('\x16\x16\x16\x16\x24')
-								output.write('\xff\xff')
-
-								if raw['type'] & 0x80 == 0x80:
-									output.write('\x00')
-								else:
-									output.write('\x80')
-
-								# output.write( chr(raw['type'] & 0x01) )
-								output.write( chr(0x00) )
-
-								output.write(struct.pack('>H',raw['start']+raw['size']))
-								output.write(struct.pack('>H',raw['start']))
-
-								output.write(chr(len(fn)))
-								output.write(fn)
-								output.write('\x00')
-
-
-							output.write(raw['file'])
-
-	except IOError, e:
-		print "Erreur", e
-		sys.exit(1)
-
-
-
-
-if __name__ == '__main__':
 	parser = argparse.ArgumentParser(prog=__program_name__, description=__description__ , formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
 	parser.add_argument('diskname', type=str, help='Disk image file')
 	parser.add_argument('file', type=str, nargs='?', default=None, help='file(s) to extract')
-	parser.add_argument('--header', type=str, default=None, choices=['orix','tape'], help='prepend with specific header')
-	parser.add_argument('--version', '-v', action='version', version= '%%(prog)s v%s' % __version__)
+	parser.add_argument('--header', type=str, default=None, choices=['orix','tape'], help='prepend extracted file with header')
+	parser.add_argument('--verbose', '-v', action='count', default=0, help='increase verbosity')
+	parser.add_argument('--version', '-V', action='version', version= '%%(prog)s v%s' % __version__)
 
 	args = parser.parse_args()
 
-	main(args.diskname, args.file, args.header)
+	fs = sedoric()
+	img_params = fs.validate(args.diskname)
+
+	if img_params is None:
+		eprint("Invalid disk image")
+		sys.exit(1)
+
+
+	fs.read_diskname()
+
+	if args.verbose > 0:
+		print('')
+		print(args.diskname,':')
+		print('\tImage header')
+		print('')
+		print('Signature: ', fs.signature)
+		print('DOS      : ', fs.dos)
+		print('Faces    : ', fs.sides)
+		print('Pistes   : ', fs.tracks)
+		print('Secteurs : ', fs.sectors)
+		print('Geometrie: ', fs.geometry)
+		print('Offset   : ', fs.offset)
+		print('')
+
+
+	if fs.dos == 'SEDORIC':
+
+		cat = fs.read_dir()
+
+		if args.verbose > 1:
+			print('')
+			print('\tDisk informations')
+			print('')
+			fs.display_bitmap()
+			print('')
+
+		if args.verbose > 2:
+			print('')
+			pprint(cat)
+			print('')
+
+		if args.file is None:
+			print('')
+			print('\tDisk Catalog')
+			print('')
+			print('   VOLUME : %s (%s)' % (fs.diskname, fs.disktype))
+			print('')
+			fs._cat()
+			print('')
+
+		else:
+			pattern = args.file.upper()
+
+			for fn in cat.keys():
+				if fnmatch.fnmatch(cat[fn]['stripped_name'],pattern):
+					raw = fs.read_file(fn)
+					# pprint(raw)
+
+					with open(cat[fn]['stripped_name'],'wb') as output:
+
+						if args.header == 'orix':
+							output.write(b'\x01\x00ori\x01\x00')
+							output.write(b'\x00' * 6)
+							output.write(chr(0b01001001))
+							output.write(struct.pack('<H',raw['start']))
+							output.write(struct.pack('<H',raw['start']+raw['size']))
+							output.write(struct.pack('<H',0))
+
+						elif args.header == 'tape':
+							output.write('\x16\x16\x16\x16\x24')
+							output.write('\xff\xff')
+
+							if raw['type'] & 0x80 == 0x80:
+								output.write('\x00')
+							else:
+								output.write('\x80')
+
+							output.write( chr(0x00) )
+
+							output.write(struct.pack('>H',raw['start']+raw['size']))
+							output.write(struct.pack('>H',raw['start']))
+
+							output.write(chr(len(fn)))
+							output.write(fn)
+							output.write('\x00')
+
+
+						output.write(raw['file'])
+
+	else:
+		eprint("Unknown DOS: ",fs.dos)
+		sys.exit(2)
+
+
+
+#------------------------------------------------------------------------------
+if __name__ == '__main__':
+
+	main()
 
