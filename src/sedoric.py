@@ -539,7 +539,7 @@ class sedoric():
 
                     if self.verbose:
                         print('Taille               : ', size)
-                        print('Type                 :  %x (%s)' % (type, ','.join(type_text)))
+                        print('Type                 :  0x%02x (%s)' % (type, ','.join(type_text)))
                         print('Addresse Execution   : ', hex(exec_addr))
                         print('Nombre de secteurs   : ', sector_count)
                         print('')
@@ -646,16 +646,32 @@ def main():
                     with open(cat[fn]['stripped_name'], 'wb') as output:
 
                         if args.header == 'orix':
-                            output.write(b'\x01\x00ori\x01\x00')
-                            output.write(b'\x00' * 6)
-                            output.write(chr(0b01001001))
-                            output.write(struct.pack('<H', raw['start']))
-                            output.write(struct.pack('<H', raw['end']))
-                            # output.write(struct.pack('<H',raw['start'] + raw['size']))
-                            output.write(struct.pack('<H', raw['exec']))
+                            if (raw['type'] & 0x80 == 0x80) or raw['exec'] > 0:
+                                output.write(b'\x01\x00ori\x01')
+
+                                # cpu_mode
+                                output.write(b'\x00')
+
+                                # os_type: 0-Orix, 1-Sedoric, 2-Stratsed, 3-FTDos
+                                output.write(b'\x01')
+
+                                # reserved
+                                output.write(b'\x00' * 5)
+
+                                # type_of_file: b0-Basic, b1: machine
+                                if raw['type'] & 0x80 == 0x80:
+                                    output.write(chr(0b00000001))
+                                elif raw['exec'] > 0x00:
+                                    output.write(chr(0b00000010))
+
+                                #
+                                output.write(struct.pack('<H', raw['start']))
+                                output.write(struct.pack('<H', raw['end']))
+                                # output.write(struct.pack('<H',raw['start'] + raw['size']))
+                                output.write(struct.pack('<H', raw['exec']))
 
                         elif args.header == 'tape':
-                            output.write('\x16\x16\x16\x16\x24')
+                            output.write('\x16\x16\x16\x24')
                             output.write('\xff\xff')
 
                             if raw['type'] & 0x80 == 0x80:
